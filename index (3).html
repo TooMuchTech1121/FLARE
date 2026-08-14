@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FLARE Receiver</title>
+<style>
+  :root {
+    --bg: #1e1e24;
+    --panel: #2a2a33;
+    --fg: #e8e8ec;
+    --accent: #4fc3f7;
+    --on: #ffca28;
+    --good: #66bb6a;
+    --bad: #ef5350;
+    --dim: #9e9e9e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    padding: 16px;
+    padding-bottom: 48px;
+  }
+  h1 {
+    font-size: 20px;
+    text-align: center;
+    margin: 8px 0 2px;
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--dim);
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+  .panel {
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 14px;
+  }
+  .panel h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--dim);
+    margin: 0 0 10px;
+  }
+  video {
+    width: 100%;
+    border-radius: 8px;
+    background: #000;
+    display: block;
+  }
+  .video-wrap {
+    position: relative;
+  }
+  .sample-box {
+    position: absolute;
+    border: 2px solid var(--accent);
+    top: 40%;
+    left: 40%;
+    width: 20%;
+    height: 20%;
+    border-radius: 4px;
+    pointer-events: none;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 8px 0;
+  }
+  label { font-size: 14px; }
+  input[type=number] {
+    width: 80px;
+    background: #12121a;
+    border: 1px solid #3a3a44;
+    color: var(--fg);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 14px;
+  }
+  input[type=range] { width: 100%; }
+  button {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    margin-top: 6px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-primary { background: var(--accent); color: #0a0a0a; }
+  .btn-secondary { background: #37474f; color: var(--fg); }
+  .btn-secondary:disabled { opacity: 0.4; }
+  .status {
+    text-align: center;
+    font-style: italic;
+    color: var(--accent);
+    font-size: 14px;
+    margin: 10px 0;
+  }
+  .light-indicator {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: #3a3a44;
+    margin: 10px auto;
+    transition: background 0.05s linear;
+  }
+  .light-indicator.on { background: var(--on); }
+  .decoded {
+    background: #12121a;
+    border-radius: 8px;
+    padding: 12px;
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 16px;
+    min-height: 24px;
+    word-break: break-word;
+  }
+  .decoded.good { color: var(--good); }
+  .decoded.bad { color: var(--bad); }
+  .log {
+    background: #0e0e13;
+    border-radius: 8px;
+    padding: 10px;
+    font-family: Menlo, monospace;
+    font-size: 11px;
+    color: #b0bec5;
+    height: 140px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--dim);
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<h1>FLARE v1 &mdash; Camera Receiver</h1>
+<div class="subtitle">Point your camera at the flashing screen or LED</div>
+
+<div class="panel">
+  <h2>Camera</h2>
+  <div class="video-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="sample-box"></div>
+  </div>
+  <button class="btn-primary" id="startCameraBtn">Start Camera</button>
+  <p class="hint">Aim the highlighted box at the flashing area. Works best in a dim room, held steady, a few inches from the screen.</p>
+</div>
+
+<div class="panel">
+  <h2>Settings (must match the sender)</h2>
+  <div class="row">
+    <label for="slotMs">Flash speed</label>
+    <input type="number" id="slotMs" value="150" min="20" max="1000" step="10"> ms/bit
+  </div>
+  <p class="hint">Slower speeds (150&ndash;300ms) are far more reliable for a phone camera than fast ones.</p>
+</div>
+
+<div class="panel">
+  <h2>Live Signal</h2>
+  <div class="light-indicator" id="lightIndicator"></div>
+  <div class="row">
+    <span>Brightness</span>
+    <span id="brightnessVal">&mdash;</span>
+  </div>
+  <div class="row">
+    <span>Threshold</span>
+    <span id="thresholdVal">&mdash;</span>
+  </div>
+  <div class="row">
+    <span>Transitions detected</span>
+    <span id="transitionCount">0</span>
+  </div>
+  <canvas id="waveCanvas" width="320" height="60" style="width:100%; height:60px; background:#12121a; border-radius:8px; margin:6px 0;"></canvas>
+  <button class="btn-secondary" id="listenBtn" disabled>Start Listening</button>
+  <div class="status" id="statusText">Start the camera first</div>
+</div>
+
+<div class="panel">
+  <h2>Decoded Message</h2>
+  <div class="decoded" id="decodedText">&mdash;</div>
+</div>
+
+<div class="panel">
+  <h2>Debug Log</h2>
+  <div class="log" id="logText"></div>
+</div>
+
+<script src="flare.js"></script>
+<script>
+(function () {
+  const video = document.getElementById("video");
+  const startCameraBtn = document.getElementById("startCameraBtn");
+  const listenBtn = document.getElementById("listenBtn");
+  const statusText = document.getElementById("statusText");
+  const decodedText = document.getElementById("decodedText");
+  const logText = document.getElementById("logText");
+  const lightIndicator = document.getElementById("lightIndicator");
+  const brightnessVal = document.getElementById("brightnessVal");
+  const thresholdVal = document.getElementById("thresholdVal");
+  const transitionCountEl = document.getElementById("transitionCount");
+  const waveCanvas = document.getElementById("waveCanvas");
+  const waveCtx = waveCanvas.getContext("2d");
+  const slotMsInput = document.getElementById("slotMs");
+
+  let waveHistory = []; // {t, on} for the live scrolling display, independent of listening state
+  const WAVE_WINDOW_MS = 4000;
+  let transitionCount = 0;
+  let lastOnState = null;
+
+  let stream = null;
+  let sampleCanvas = document.createElement("canvas");
+  sampleCanvas.width = 32;
+  sampleCanvas.height = 32;
+  let sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
+
+  let listening = false;
+  let receiver = null;
+  let listenStartTime = null;
+  let rollingMin = 255, rollingMax = 0;
+  let rollingWindow = []; // {t, brightness} for adaptive min/max
+  const ROLLING_WINDOW_MS = 1500;
+  let decodeIntervalHandle = null;
+  let sampleLoopHandle = null;
+
+  function log(msg) {
+    const t = new Date().toLocaleTimeString();
+    logText.textContent += `[${t}] ${msg}\n`;
+    logText.scrollTop = logText.scrollHeight;
+  }
+
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 60 },
+          // Not supported on iOS Safari today, but harmless to request --
+          // if a future WebKit version honors it, this locks exposure so
+          // the camera stops auto-compensating for the flashing itself.
+          advanced: [{ exposureMode: "manual" }, { whiteBalanceMode: "manual" }],
+        },
+        audio: false,
+      });
+      video.srcObject = stream;
+      await video.play();
+      startCameraBtn.textContent = "Camera Running";
+      startCameraBtn.disabled = true;
+      listenBtn.disabled = false;
+      statusText.textContent = "Camera ready. Aim at the light, then Start Listening.";
+      log("Camera started");
+      requestAnimationFrame(sampleLoop);
+    } catch (err) {
+      statusText.textContent = "Camera access failed: " + err.message;
+      log("ERROR opening camera: " + err.message);
+    }
+  }
+
+  function currentBrightness() {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    // Sample the same central region the on-screen box highlights (40%-60%)
+    const sx = vw * 0.4, sy = vh * 0.4, sw = vw * 0.2, sh = vh * 0.2;
+    sampleCtx.drawImage(video, sx, sy, sw, sh, 0, 0, sampleCanvas.width, sampleCanvas.height);
+    const frame = sampleCtx.getImageData(0, 0, sampleCanvas.width, sampleCanvas.height).data;
+    let sum = 0, count = 0;
+    for (let i = 0; i < frame.length; i += 4) {
+      // standard luminance weighting
+      sum += 0.299 * frame[i] + 0.587 * frame[i + 1] + 0.114 * frame[i + 2];
+      count++;
+    }
+    return sum / count;
+  }
+
+  function sampleLoop(now) {
+    const brightness = currentBrightness();
+    if (brightness !== null) {
+      rollingWindow.push({ t: now, brightness });
+      while (rollingWindow.length && now - rollingWindow[0].t > ROLLING_WINDOW_MS) {
+        rollingWindow.shift();
+      }
+      rollingMin = Math.min(...rollingWindow.map((s) => s.brightness));
+      rollingMax = Math.max(...rollingWindow.map((s) => s.brightness));
+      const threshold = (rollingMin + rollingMax) / 2;
+      const on = brightness > threshold;
+
+      brightnessVal.textContent = brightness.toFixed(1);
+      thresholdVal.textContent = threshold.toFixed(1) +
+        ` (range ${rollingMin.toFixed(0)}\u2013${rollingMax.toFixed(0)})`;
+      lightIndicator.classList.toggle("on", on);
+
+      // Live waveform + transition counter -- runs regardless of whether
+      // we're "listening" for a message, so you can see the raw signal
+      // and confirm the camera is actually picking up brightness changes
+      // before worrying about decoding.
+      if (lastOnState !== null && on !== lastOnState) {
+        transitionCount++;
+        transitionCountEl.textContent = transitionCount;
+      }
+      lastOnState = on;
+      waveHistory.push({ t: now, on });
+      while (waveHistory.length && now - waveHistory[0].t > WAVE_WINDOW_MS) {
+        waveHistory.shift();
+      }
+      drawWaveform();
+
+      if (listening && receiver) {
+        const t = now - listenStartTime;
+        receiver.ingestSample(t, on);
+      }
+    }
+    if (stream) {
+      requestAnimationFrame(sampleLoop);
+    }
+  }
+
+  function drawWaveform() {
+    const w = waveCanvas.width, h = waveCanvas.height;
+    waveCtx.clearRect(0, 0, w, h);
+    if (waveHistory.length < 2) return;
+    const t0 = waveHistory[0].t;
+    const tLast = waveHistory[waveHistory.length - 1].t;
+    const span = Math.max(tLast - t0, 1);
+    waveCtx.strokeStyle = "#ffca28";
+    waveCtx.lineWidth = 2;
+    waveCtx.beginPath();
+    let prevX = null, prevY = null;
+    for (const s of waveHistory) {
+      const x = ((s.t - t0) / span) * w;
+      const y = s.on ? 8 : h - 8;
+      if (prevX === null) {
+        waveCtx.moveTo(x, y);
+      } else {
+        waveCtx.lineTo(x, prevY);
+        waveCtx.lineTo(x, y);
+      }
+      prevX = x;
+      prevY = y;
+    }
+    waveCtx.stroke();
+  }
+
+  function startListening() {
+    const slotMs = parseFloat(slotMsInput.value) || 150;
+    receiver = new Flare.FlareReceiver(slotMs);
+    listenStartTime = performance.now();
+    listening = true;
+    decodedText.textContent = "\u2014";
+    decodedText.className = "decoded";
+    statusText.textContent = "Listening\u2026";
+    listenBtn.textContent = "Stop Listening";
+    log(`Listening started (slot=${slotMs}ms)`);
+
+    decodeIntervalHandle = setInterval(() => {
+      if (!listening || !receiver) return;
+      const result = receiver.attemptDecode();
+      if (result) {
+        if (result.crcValid) {
+          decodedText.textContent = result.text;
+          decodedText.className = "decoded good";
+          statusText.textContent = "Message received \u2713";
+          log(`DECODED: ${JSON.stringify(result.text)} (CRC valid)`);
+        } else {
+          decodedText.textContent = "[" + (result.error || "decode failed") + "]";
+          decodedText.className = "decoded bad";
+          statusText.textContent = "Reception failed \u2717";
+          log(`DECODE FAILED: ${result.error}`);
+          if (result.rawBits) {
+            const xCount = (result.rawBits.match(/X/g) || []).length;
+            log(`RAW BITS: ${result.rawBits}`);
+            log(`AMBIGUOUS BITS: ${xCount} of ${result.rawBits.length} `
+              + `(marked 'X' above) \u2014 try a slower flash speed, dimmer `
+              + `room, or hold the phone closer/steadier`);
+          }
+        }
+        // Stop after first result (success or confirmed failure); the
+        // user can hit Start Listening again for the next message.
+        stopListening();
+      }
+    }, 200);
+  }
+
+  function stopListening() {
+    listening = false;
+    listenBtn.textContent = "Start Listening";
+    if (decodeIntervalHandle) {
+      clearInterval(decodeIntervalHandle);
+      decodeIntervalHandle = null;
+    }
+  }
+
+  startCameraBtn.addEventListener("click", startCamera);
+  listenBtn.addEventListener("click", () => {
+    if (listening) {
+      stopListening();
+      statusText.textContent = "Stopped.";
+      log("Listening stopped by user");
+    } else {
+      startListening();
+    }
+  });
+})();
+</script>
+
+</body>
+</html>
